@@ -1,0 +1,453 @@
+! ============================================================================
+! AppProject-Export v1.0 (07.11.2026)
+! fuer den AppProject Smart-Home-Assistenten fuer Homematic
+! (unabhaengig, nicht Teil von eQ-3) - https://appproject.de/ki-assistent/
+!
+! WAS DAS SKRIPT MACHT
+!   Es liest Programme, Systemvariablen sowie Geraete mit Kanaelen, Raeumen
+!   und Gewerken und gibt sie als Text aus. Es ruft nur lesende Methoden auf
+!   (keine Setter, kein system.Exec, kein Schreiben in Variablen oder Geraete).
+!   Passwoerter der CCU werden nicht gelesen. Zeilen aus eingebetteten Skripten
+!   und Textwerte, die nach Zugangsdaten aussehen (pass, token, apikey, secret,
+!   auth, user:pass@ in URLs ...), werden ausgeblendet.
+!
+! AUSFUEHREN
+!   WebUI > Programme und Verknuepfungen > Programme & Zentralenverknuepfung >
+!   unten "Skript testen" > Skript in "Eingabe" einfuegen > "Ausfuehren" >
+!   den kompletten Inhalt von "Ausgabe" kopieren.
+!   Benoetigt Firmware ab 2.29.22 (ToLower/Replace), also jede CCU3,
+!   RaspberryMatic/OpenCCU und aktuelle CCU2.
+!
+! ZEILENPRAEFIXE DER AUSGABE
+!   #      Kopf, Hinweise, Ende
+!   PRG:   Programm          REGEL: Wenn / Sonst-wenn / Sonst eines Programms
+!   BED:   Bedingung         DANN:  Aktion (Wenn bzw. Sonst-wenn)
+!   SONST: Aktion (Sonst)    SKR:   Zeile eines eingebetteten Skripts
+!   SV:    Systemvariable    DEV:   Geraet       CH: Kanal eines Geraets
+!
+! QUELLEN (Methoden und Konstantenwerte)
+!   eQ-3: Homematic Script-Dokumentation Teil 1 Sprachbeschreibung V2.2
+!     https://www.eq-3.de/Downloads/eq3/download%20bereich/hm_web_ui_doku/HM-Skript_Teil_1_Sprachbeschreibung_V2.2.pdf
+!     (foreach mit Tab-Listen, Find, Substr, Split, StrValueByIndex,
+!      ToLower, Replace, quit, Escape-Sequenzen, Auswertung rechts nach links)
+!   eQ-3 OCCU WebUI-Quelltext (Programmeditor):
+!     https://github.com/eq-3/occu/blob/master/WebUI/www/rega/esp/rule.inc
+!       Rule, RuleSubRule, ElseIfFlag, RuleConditions().Count, RuleCondition,
+!       CndSingleCount, CndSingleCondition, OperatorType/CndOperatorType
+!       (1 = UND, 2 = ODER), RuleDestination, BreakOnRestart,
+!       DestSingleCount, DestSingleDestination
+!     https://github.com/eq-3/occu/blob/master/WebUI/www/rega/esp/sico.inc
+!       LeftVal, LeftValType, RightVal1/2, RightVal1ValType, ConditionChannel,
+!       ConditionType (5 gleich, 6/7 Bereich, 8 >, 9 >=, 10 <, 11 <=),
+!       ConditionType2 (4 bei Aenderung, 13 bei Aktualisierung bzw.
+!       zu Zeitpunkten, 15 nur pruefen), istAction
+!     https://github.com/eq-3/occu/blob/master/WebUI/www/rega/esp/side.inc
+!       DestinationParam (ivtObjectId/ivtSystemId/ivtString), DestinationDP,
+!       DestinationChannel, DestinationValue, DestinationValueType,
+!       DestinationValueParamType (ivtDelay), DestinationValueParam
+!     https://github.com/eq-3/occu/blob/master/WebUI/www/rega/esp/system.fn
+!       TmToString: TimerType (ttCal...), SunOffsetType (sot...), Time,
+!       TimeSeconds, CalDuration, Begin, End, CalRepetitionCount, Weekdays
+!     https://github.com/eq-3/occu/blob/master/WebUI/www/rega/xml-api/devicelist.xml
+!       ID_DEVICES, Channels, Internal, HssType, Address, Interface, ChnNumber
+!     https://github.com/eq-3/occu/blob/master/WebUI/www/rega/esp/channels.fn
+!       ChnRoom, ChnFunction
+!     https://github.com/eq-3/occu/blob/master/WebUI/www/pda/eq3/sysvar.tcl
+!       Systemvariablen: ValueType/ValueSubType, ValueName0/1, ValueList,
+!       ValueUnit; programs.htm: PrgInfo, ProgramLastExecuteTime
+!   Community (Gegenprobe):
+!     https://github.com/firsttris/ccu-addon-mui (rega/scripts/get_program.tcl,
+!       Wochentags-Bitmaske Mo=1 ... So=64, Period, CalRepetitionValue)
+!     https://github.com/thkl/hm-interface (lib/scripts/getprogramdetail.txt)
+!     https://homematic-forum.de/forum/viewtopic.php?t=48904
+!     dom.BuildLabel(): OpenCCU www/config/help.cgi (ReGaHss-Version)
+! ============================================================================
+
+! ---------- Variablen (alle einmal oben deklariert) -------------------------
+string z; string sT; string sTmp; string sK; string sKW; string sLbl;
+string sWert; string sPid; string sCi; string sSi; string sDi; string sZ;
+string sZeile; string sRegel; string sPre; string sDid; string sChid;
+string sRaeume; string sGew; string sTyp; string sOp; string sTrig;
+integer iLen; integer iMax; integer iRule; integer iGC; integer iSC;
+integer iDC; integer iCT; integer iCT2; integer iLVT; integer iP;
+integer iVT; integer iVPT; integer iWd; integer iI; integer iNPrg;
+integer iNSv; integer iNDev; integer iNCh;
+boolean bGeh; boolean bSv; boolean bTm;
+object oPrg; object oRule; object oCnd; object oSC; object oDest;
+object oSD; object oX; object oCh; object oTm; object oSv; object oDev;
+object oR;
+var vRV1; var vRV2; var vVal;
+
+iLen = 0;
+iMax = 250000;
+iNPrg = 0; iNSv = 0; iNDev = 0; iNCh = 0;
+! Suchbegriffe fuer moegliche Zugangsdaten (klein geschrieben, Tab-Liste)
+sKW = "pass\tpwd\ttoken\tapikey\tapi_key\tapi-key\tsecret\tauth\tkennw\tbearer\tuser=\tlogin\tpin=\t -u ";
+
+! ---------- Kopf -------------------------------------------------------------
+z = "# AppProject-Export v1.0 | ReGaHss=" # dom.BuildLabel() # " | erstellt=" # system.Date("%Y-%m-%d %H:%M");
+WriteLine(z); iLen = iLen + (z.Length() + 1);
+z = "# Nur lesend erstellt. Keine Passwoerter. Bitte die GESAMTE Ausgabe kopieren (Strg+A, Strg+C im Feld Ausgabe).";
+WriteLine(z); iLen = iLen + (z.Length() + 1);
+z = "# Format: Felder durch | getrennt. R=Regel (R1=Wenn, R2..=Sonst-wenn), G=Bedingungsgruppe, B=Einzelbedingung.";
+WriteLine(z); iLen = iLen + (z.Length() + 1);
+
+! ============================================================================
+! 1) PROGRAMME
+! ============================================================================
+foreach (sPid, dom.GetObject(ID_PROGRAMS).EnumUsedIDs()) {
+  oPrg = dom.GetObject(sPid);
+  if (oPrg) {
+    iNPrg = iNPrg + 1;
+    sT = oPrg.PrgInfo().ToString();
+    sT = sT.Replace("\r", "");
+    sT = sT.Replace("\n", " / ");
+    sT = sT.Replace("\t", " ");
+    bGeh = false; sTmp = sT.ToLower(); foreach (sK, sKW) { if (sTmp.Find(sK) >= 0) { bGeh = true; } } if ((sTmp.Find("://") >= 0) && (sTmp.Find("@") >= 0)) { bGeh = true; }
+    if (bGeh) { sT = "[ausgeblendet: moegliche Zugangsdaten]"; }
+    sTmp = "nein"; if (oPrg.Active()) { sTmp = "ja"; }
+    z = "PRG: " # oPrg.Name() # " | id=" # oPrg.ID() # " | aktiv=" # sTmp;
+    sTmp = "nein"; if (oPrg.Visible()) { sTmp = "ja"; }
+    z = z # " | sichtbar=" # sTmp # " | zuletzt=" # oPrg.ProgramLastExecuteTime() # " | beschreibung=" # sT;
+    if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+
+    oRule = oPrg.Rule();
+    iRule = 0;
+    while (oRule && (iRule < 50)) {
+      iRule = iRule + 1;
+      oDest = oRule.RuleDestination();
+      sTmp = "nein";
+      if (oDest) { if (oDest.BreakOnRestart()) { sTmp = "ja"; } }
+      if (oRule.ElseIfFlag()) {
+        sRegel = "R" # iRule;
+        sPre = "DANN: " # sRegel;
+        if (iRule == 1) { z = "REGEL: " # sRegel # " | WENN"; } else { z = "REGEL: " # sRegel # " | SONST WENN"; }
+      } else {
+        sRegel = "R" # iRule;
+        sPre = "SONST: " # sRegel;
+        z = "REGEL: " # sRegel # " | SONST";
+      }
+      z = z # " | laufende Verzoegerungen vorher beenden=" # sTmp;
+      if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+
+      ! ---------- Bedingungen (nur bei Wenn / Sonst-wenn) ----------
+      if (oRule.ElseIfFlag()) {
+        iGC = oRule.RuleConditions().Count();
+        if (iGC == 0) {
+          z = "BED: " # sRegel # " | (keine Bedingung)";
+          if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+        }
+        if (iGC > 0) {
+          foreach (sCi, system.GenerateEnum(0, (iGC - 1))) {
+            oCnd = oRule.RuleCondition(sCi.ToInteger());
+            if (oCnd) {
+              iSC = oCnd.CndSingleCount();
+              if (iSC > 0) {
+                foreach (sSi, system.GenerateEnum(0, (iSC - 1))) {
+                  oSC = oCnd.CndSingleCondition(sSi.ToInteger());
+                  if (oSC) {
+                    iLVT = oSC.LeftValType();
+                    iCT = oSC.ConditionType();
+                    iCT2 = oSC.ConditionType2();
+                    vRV1 = oSC.RightVal1();
+                    vRV2 = oSC.RightVal2();
+                    sOp = "";
+                    if (sSi.ToInteger() > 0) {
+                      sOp = "?";
+                      if (oSC.OperatorType() == 1) { sOp = "UND"; }
+                      if (oSC.OperatorType() == 2) { sOp = "ODER"; }
+                      sOp = sOp # " | ";
+                    }
+                    z = "BED: " # sRegel # " G" # (sCi.ToInteger() + 1) # " B" # (sSi.ToInteger() + 1) # " | " # sOp;
+                    bSv = false;
+
+                    ! ---- linke Seite ----
+                    if (iLVT == ivtObjectId) {
+                      oX = dom.GetObject(oSC.LeftVal());
+                      oCh = dom.GetObject(oSC.ConditionChannel());
+                      if (oCh) { z = z # "Geraet \"" # oCh.Name() # "\" (" # oCh.Address() # ")"; } else { z = z # "Geraet (Kanal fehlt, id=" # oSC.ConditionChannel() # ")"; }
+                      if (oX) { z = z # " DP=" # oX.HssType(); } else { z = z # " DP fehlt (id=" # oSC.LeftVal() # ")"; }
+                    }
+                    if (iLVT == ivtSystemId) {
+                      bSv = true;
+                      oX = dom.GetObject(oSC.LeftVal());
+                      if (oX) { z = z # "Systemvariable \"" # oX.Name() # "\""; } else { z = z # "Systemvariable fehlt (id=" # oSC.LeftVal() # ")"; }
+                    }
+                    if (iLVT == ivtEmpty) { z = z # "(leere Bedingung)"; }
+
+                    ! ---- Vergleich (Geraet / Systemvariable) ----
+                    if ((iLVT == ivtObjectId) || (iLVT == ivtSystemId)) {
+                      sWert = vRV1.ToString();
+                      sLbl = "";
+                      if (oX) {
+                        if (oX.ValueSubType() == istEnum) { sLbl = oX.ValueList().StrValueByIndex(";", sWert.ToInteger()); }
+                        if (bSv && (oX.ValueType() == ivtBinary)) {
+                          if ((sWert == "1") || (sWert == "true")) { sLbl = oX.ValueName1(); }
+                          if ((sWert == "0") || (sWert == "false")) { sLbl = oX.ValueName0(); }
+                        }
+                        if (oX.ValueType() == ivtString) {
+                          sT = sWert;
+                          bGeh = false; sTmp = sT.ToLower(); foreach (sK, sKW) { if (sTmp.Find(sK) >= 0) { bGeh = true; } } if ((sTmp.Find("://") >= 0) && (sTmp.Find("@") >= 0)) { bGeh = true; }
+                          if (bGeh) { sWert = "[ausgeblendet]"; }
+                        }
+                      }
+                      if (sLbl <> "") { sWert = sWert # " (" # sLbl # ")"; }
+                      sTmp = "";
+                      if (oX) { sTmp = oX.ValueUnit(); }
+                      if (sTmp <> "") { sTmp = " " # sTmp; }
+                      if (iCT == 1) { z = z # " | bei " # sWert; }
+                      elseif (iCT == 5) { z = z # " | gleich " # sWert # sTmp; }
+                      elseif (iCT == 6) { z = z # " | im Bereich von " # sWert # sTmp # " bis kleiner " # vRV2.ToString() # sTmp; }
+                      elseif (iCT == 7) { z = z # " | im Bereich von " # sWert # sTmp # " bis groesser " # vRV2.ToString() # sTmp; }
+                      elseif (iCT == 8) { z = z # " | groesser als " # sWert # sTmp; }
+                      elseif (iCT == 9) { z = z # " | groesser oder gleich " # sWert # sTmp; }
+                      elseif (iCT == 10) { z = z # " | kleiner als " # sWert # sTmp; }
+                      elseif (iCT == 11) { z = z # " | kleiner oder gleich " # sWert # sTmp; }
+                      else { z = z # " | vergleich=" # iCT # " wert1=" # sWert # " wert2=" # vRV2.ToString(); }
+                      if (oX) { if (oX.ValueSubType() == istAction) { z = z # " | Tastendruck/Aktion"; } }
+                    }
+
+                    ! ---- Zeitmodul ----
+                    if (iLVT == ivtCurrentDate) {
+                      z = z # "Zeitmodul";
+                      bTm = false;
+                      if (oSC.RightVal1ValType() == ivtObjectId) { oTm = dom.GetObject(vRV1); if (oTm) { bTm = true; } }
+                      if (bTm) {
+                        sTyp = "typ=" # oTm.TimerType();
+                        if (oTm.TimerType() == ttCalOnce) { sTyp = "einmalig"; }
+                        if (oTm.TimerType() == ttPeriodic) { sTyp = "periodisch"; }
+                        if (oTm.TimerType() == ttCalDaily) { sTyp = "taeglich"; }
+                        if (oTm.TimerType() == ttCalWeekly) { sTyp = "woechentlich"; }
+                        if (oTm.TimerType() == ttCalMonthly) { sTyp = "monatlich"; }
+                        if (oTm.TimerType() == ttCalYearly) { sTyp = "jaehrlich"; }
+                        z = z # " " # sTyp;
+                        if (oTm.SunOffsetType() == sotNone) {
+                          vVal = oTm.Time();
+                          if ((oTm.TimeSeconds() == 0) && (oTm.CalDuration() == 0)) { z = z # " ganztaegig"; }
+                          elseif (oTm.CalDuration() == 0) { z = z # " um " # vVal.Format("%H:%M"); }
+                          else { z = z # " von " # vVal.Format("%H:%M"); }
+                        }
+                        if (oTm.SunOffsetType() == sotAfterSunrise) { z = z # " tagsueber (Astro)"; }
+                        if (oTm.SunOffsetType() == sotAfterSunset) { z = z # " nachts (Astro)"; }
+                        if (oTm.CalDuration() <> 0) { z = z # " bis " # (oTm.TimeSeconds() + oTm.CalDuration()).ToTime().Format("%H:%M"); }
+                        iWd = oTm.Weekdays();
+                        if (iWd > 0) {
+                          sTmp = "";
+                          if ((iWd & 1) > 0) { sTmp = sTmp # "Mo "; }
+                          if ((iWd & 2) > 0) { sTmp = sTmp # "Di "; }
+                          if ((iWd & 4) > 0) { sTmp = sTmp # "Mi "; }
+                          if ((iWd & 8) > 0) { sTmp = sTmp # "Do "; }
+                          if ((iWd & 16) > 0) { sTmp = sTmp # "Fr "; }
+                          if ((iWd & 32) > 0) { sTmp = sTmp # "Sa "; }
+                          if ((iWd & 64) > 0) { sTmp = sTmp # "So "; }
+                          z = z # " | wochentage=" # sTmp # "(" # iWd # ")";
+                        }
+                        z = z # " | intervall=" # oTm.Period() # "/" # oTm.CalRepetitionValue();
+                        vVal = oTm.Begin();
+                        z = z # " | ab " # vVal.Format("%d.%m.%Y");
+                        if (oTm.CalRepetitionCount() == 0) {
+                          sTmp = oTm.End().ToString();
+                          if (sTmp <> "") { vVal = oTm.End(); z = z # " bis " # vVal.Format("%d.%m.%Y"); }
+                        } else {
+                          z = z # " | wiederholungen=" # oTm.CalRepetitionCount();
+                        }
+                      } else {
+                        z = z # " (nicht lesbar)";
+                      }
+                    }
+
+                    ! ---- Ausloeseart ----
+                    sTrig = "ausloesen=" # iCT2;
+                    if (iCT2 == 4) { sTrig = "bei Aenderung ausloesen"; }
+                    if (iCT2 == 13) {
+                      if (iLVT == ivtCurrentDate) { sTrig = "zu Zeitpunkten ausloesen"; } else { sTrig = "bei Aktualisierung ausloesen"; }
+                    }
+                    if (iCT2 == 15) { sTrig = "nur pruefen"; }
+                    z = z # " | " # sTrig;
+                    if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+                  }
+                }
+              }
+              ! Verknuepfung zur naechsten Bedingungsgruppe
+              if (sCi.ToInteger() < (iGC - 1)) {
+                sOp = "?";
+                if (oCnd.CndOperatorType() == 1) { sOp = "UND"; }
+                if (oCnd.CndOperatorType() == 2) { sOp = "ODER"; }
+                z = "BED: " # sRegel # " G" # (sCi.ToInteger() + 1) # " | " # sOp # " (Verknuepfung zur naechsten Gruppe)";
+                if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+              }
+            }
+          }
+        }
+      }
+
+      ! ---------- Aktionen (Dann bzw. Sonst) ----------
+      if (oDest) {
+        iDC = oDest.DestSingleCount();
+        if (iDC == 0) {
+          z = sPre # " | (keine Aktion)";
+          if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+        }
+        if (iDC > 0) {
+          foreach (sDi, system.GenerateEnum(0, (iDC - 1))) {
+            oSD = oDest.DestSingleDestination(sDi.ToInteger());
+            if (oSD) {
+              iP = oSD.DestinationParam();
+              iVT = oSD.DestinationValueType();
+              iVPT = oSD.DestinationValueParamType();
+              vVal = oSD.DestinationValue();
+              z = sPre # " A" # (sDi.ToInteger() + 1) # " | ";
+              bSv = false;
+              if (iP == ivtObjectId) {
+                oCh = dom.GetObject(oSD.DestinationChannel());
+                oX = dom.GetObject(oSD.DestinationDP());
+                if (oCh) { z = z # "Geraet \"" # oCh.Name() # "\" (" # oCh.Address() # ")"; } else { z = z # "Geraet (Kanal fehlt, id=" # oSD.DestinationChannel() # ")"; }
+                if (oX) { z = z # " DP=" # oX.HssType(); } else { z = z # " DP fehlt (id=" # oSD.DestinationDP() # ")"; }
+              }
+              if (iP == ivtSystemId) {
+                bSv = true;
+                oX = dom.GetObject(oSD.DestinationDP());
+                if (oX) { z = z # "Systemvariable \"" # oX.Name() # "\""; } else { z = z # "Systemvariable fehlt (id=" # oSD.DestinationDP() # ")"; }
+              }
+              if (iP == ivtEmpty) { z = z # "(leere Aktion)"; }
+
+              ! Verzoegerung
+              sTmp = "sofort";
+              if (iVPT == ivtDelay) { sTmp = oSD.DestinationValueParam().ToString(); sTmp = "verzoegert um " # sTmp.Substr(11, 8); }
+
+              if (iP == ivtString) {
+                ! eingebettetes Skript
+                sZ = vVal.ToString();
+                iI = sZ.Length();
+                z = z # "Skript (" # iI # " Zeichen";
+                if (iI > 1500) { sZ = sZ.Substr(0, 1500); z = z # ", gekuerzt auf 1500"; }
+                z = z # ") | " # sTmp;
+                if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+                sZ = sZ.Replace("\r", "");
+                sZ = sZ.Replace("\t", "  ");
+                sZ = sZ.Replace("\n", "\t");
+                foreach (sZeile, sZ) {
+                  sT = sZeile;
+                  bGeh = false; sTmp = sT.ToLower(); foreach (sK, sKW) { if (sTmp.Find(sK) >= 0) { bGeh = true; } } if ((sTmp.Find("://") >= 0) && (sTmp.Find("@") >= 0)) { bGeh = true; }
+                  if (bGeh) { sT = "[Zeile ausgeblendet: moegliche Zugangsdaten]"; }
+                  z = "SKR: " # sRegel # " A" # (sDi.ToInteger() + 1) # " | " # sT;
+                  if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+                }
+              } else {
+                ! Wert fuer Geraet / Systemvariable
+                if ((iP == ivtObjectId) || (iP == ivtSystemId)) {
+                  sWert = vVal.ToString();
+                  sLbl = "";
+                  if (oX) {
+                    if (oX.ValueSubType() == istEnum) { sLbl = oX.ValueList().StrValueByIndex(";", sWert.ToInteger()); }
+                    if (bSv && (oX.ValueType() == ivtBinary)) {
+                      if ((sWert == "1") || (sWert == "true")) { sLbl = oX.ValueName1(); }
+                      if ((sWert == "0") || (sWert == "false")) { sLbl = oX.ValueName0(); }
+                    }
+                  }
+                  if (iVT == ivtString) {
+                    sT = sWert;
+                    bGeh = false; sZeile = sT.ToLower(); foreach (sK, sKW) { if (sZeile.Find(sK) >= 0) { bGeh = true; } } if ((sZeile.Find("://") >= 0) && (sZeile.Find("@") >= 0)) { bGeh = true; }
+                    if (bGeh) { sWert = "[ausgeblendet: moegliche Zugangsdaten]"; }
+                    sWert = sWert.Replace("\r", "");
+                    sWert = sWert.Replace("\n", " / ");
+                    sWert = sWert.Replace("\t", " ");
+                  }
+                  if (sLbl <> "") { sWert = sWert # " (" # sLbl # ")"; }
+                  if (iVT == ivtSpecialValue) { sWert = sWert # " (Sonderwert)"; }
+                  z = z # " = " # sWert;
+                  if (oX) { if (oX.ValueUnit() <> "") { z = z # " " # oX.ValueUnit(); } }
+                }
+                z = z # " | " # sTmp;
+                if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+              }
+            }
+          }
+        }
+      }
+      oRule = oRule.RuleSubRule();
+    }
+  }
+}
+
+! ============================================================================
+! 2) SYSTEMVARIABLEN
+! ============================================================================
+foreach (sPid, dom.GetObject(ID_SYSTEM_VARIABLES).EnumUsedIDs()) {
+  oSv = dom.GetObject(sPid);
+  if (oSv) {
+    iNSv = iNSv + 1;
+    sTyp = "typ=" # oSv.ValueType() # "/" # oSv.ValueSubType();
+    if (oSv.ValueSubType() == istBool) { sTyp = "Logikwert"; }
+    if (oSv.ValueSubType() == istAlarm) { sTyp = "Alarm"; }
+    if (oSv.ValueSubType() == istEnum) { sTyp = "Werteliste"; }
+    if (oSv.ValueSubType() == istGeneric) { sTyp = "Zahl"; }
+    if (oSv.ValueSubType() == istChar8859) { sTyp = "Zeichenkette"; }
+    if (oSv.ValueSubType() == istPresent) { sTyp = "Anwesenheit"; }
+    vVal = oSv.Value();
+    sWert = vVal.ToString();
+    sLbl = "";
+    if (oSv.ValueSubType() == istEnum) { sLbl = oSv.ValueList().StrValueByIndex(";", sWert.ToInteger()); }
+    if (oSv.ValueType() == ivtBinary) {
+      if ((sWert == "1") || (sWert == "true")) { sLbl = oSv.ValueName1(); }
+      if ((sWert == "0") || (sWert == "false") || (sWert == "")) { sLbl = oSv.ValueName0(); }
+    }
+    if (oSv.ValueType() == ivtString) {
+      sT = oSv.Name() # " " # sWert;
+      bGeh = false; sTmp = sT.ToLower(); foreach (sK, sKW) { if (sTmp.Find(sK) >= 0) { bGeh = true; } } if ((sTmp.Find("://") >= 0) && (sTmp.Find("@") >= 0)) { bGeh = true; }
+      if (bGeh) { sWert = "[ausgeblendet: moegliche Zugangsdaten]"; }
+      if (sWert.Length() > 300) { sWert = sWert.Substr(0, 300) # " [gekuerzt]"; }
+      sWert = sWert.Replace("\r", "");
+      sWert = sWert.Replace("\n", " / ");
+      sWert = sWert.Replace("\t", " ");
+    }
+    if (sLbl <> "") { sWert = sWert # " (" # sLbl # ")"; }
+    z = "SV: " # oSv.Name() # " | id=" # oSv.ID() # " | " # sTyp # " | wert=" # sWert;
+    if (oSv.ValueUnit() <> "") { z = z # " | einheit=" # oSv.ValueUnit(); }
+    if (oSv.ValueSubType() == istGeneric) { z = z # " | min=" # oSv.ValueMin() # " | max=" # oSv.ValueMax(); }
+    if (oSv.ValueSubType() == istEnum) { z = z # " | werteliste=" # oSv.ValueList(); }
+    if ((oSv.ValueType() == ivtBinary) && (oSv.ValueSubType() <> istPresent)) { z = z # " | namen=" # oSv.ValueName0() # "/" # oSv.ValueName1(); }
+    oX = dom.GetObject(oSv.Channel());
+    if (oX) { z = z # " | kanal=" # oX.Name(); }
+    z = z # " | geaendert=" # oSv.Timestamp();
+    if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+  }
+}
+
+! ============================================================================
+! 3) GERAETE UND KANAELE
+! ============================================================================
+foreach (sDid, dom.GetObject(ID_DEVICES).EnumUsedIDs()) {
+  oDev = dom.GetObject(sDid);
+  if (oDev) {
+    iNDev = iNDev + 1;
+    z = "DEV: " # oDev.Name() # " | typ=" # oDev.HssType() # " | adresse=" # oDev.Address();
+    oX = dom.GetObject(oDev.Interface());
+    if (oX) { z = z # " | schnittstelle=" # oX.Name(); }
+    if (oDev.ReadyConfig() == false) { z = z # " | NICHT FERTIG KONFIGURIERT"; }
+    if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+    foreach (sChid, oDev.Channels()) {
+      oCh = dom.GetObject(sChid);
+      if (oCh) {
+        if ((oCh.Internal() == false) && (oCh.ChnNumber() > 0)) {
+          iNCh = iNCh + 1;
+          sRaeume = "";
+          foreach (sTmp, oCh.ChnRoom()) {
+            oR = dom.GetObject(sTmp);
+            if (oR) { if (sRaeume <> "") { sRaeume = sRaeume # ", "; } sRaeume = sRaeume # oR.Name(); }
+          }
+          sGew = "";
+          foreach (sTmp, oCh.ChnFunction()) {
+            oR = dom.GetObject(sTmp);
+            if (oR) { if (sGew <> "") { sGew = sGew # ", "; } sGew = sGew # oR.Name(); }
+          }
+          z = "CH: " # oCh.Name() # " | typ=" # oCh.HssType() # " | adresse=" # oCh.Address() # " | raeume=" # sRaeume # " | gewerke=" # sGew;
+          if (iLen > iMax) { WriteLine("# ABBRUCH: Ausgabe hat ca. 250 KB erreicht. Bitte alles bis hier kopieren und hochladen."); quit; } WriteLine(z); iLen = iLen + (z.Length() + 1);
+        }
+      }
+    }
+  }
+}
+
+z = "# ENDE | programme=" # iNPrg # " | systemvariablen=" # iNSv # " | geraete=" # iNDev # " | kanaele=" # iNCh # " | zeichen=" # iLen;
+WriteLine(z);

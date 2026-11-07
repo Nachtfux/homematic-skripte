@@ -1,0 +1,2 @@
+WriteLine("Mjpeg Stream");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/videostream.cgi?user=XXX&pwd=XXX&resolution=32&rate=0'");

@@ -1,0 +1,36 @@
+real c_zeit = (0.01 * system.Date("%M").ToInteger()) + system.Date("%H").ToInteger();
+real c_beginn = (0.01 * system.SunriseTime("%M").ToInteger()) + system.SunriseTime("%H").ToInteger();
+real c_ende = (0.01 * system.SunsetTime("%M").ToInteger()) + system.SunsetTime("%H").ToInteger();
+real c_mittag = 0.5 * (c_beginn + c_ende);
+
+integer v_tageszeit = 0; ! Nacht
+
+! Abend: ab Sonnenuntergang bis 2 Std. danach, mindestens aber bis 22:00 Uhr
+if ((c_zeit < c_ende + 2) || (c_zeit < 22.00)) {
+  v_tageszeit = 5; ! Abend
+}
+
+if (c_zeit < c_ende) {
+  v_tageszeit = 4; ! Nachmittag
+}
+
+if (c_zeit < c_mittag + 1) {
+  v_tageszeit = 3; ! Mittag
+}
+
+if (c_zeit < c_mittag - 1) {
+  v_tageszeit = 2; ! Vormittag
+}
+
+if (c_zeit < c_beginn) {
+  v_tageszeit = 1; ! Morgen
+}
+
+if ((c_zeit < c_beginn - 2) && (c_zeit < 04.00)) {
+  v_tageszeit = 0; ! Nacht
+}
+
+object s_tageszeit = dom.GetObject("Tageszeit");
+if (s_tageszeit.Value() != v_tageszeit) {
+  s_tageszeit.State(v_tageszeit);
+}

@@ -1,0 +1,11 @@
+Hue Lampe Einschalten
+dom.GetObject("CUxD.CUX2801001:1.CMD_QUERY_RET").State(1);
+dom.GetObject("CUxD.CUX2801001:1.CMD_SETS").State("tclsh /usr/local/addons/hue/hue.tcl 5 true 254 150 10000 0");
+var v = dom.GetObject("CUxD.CUX2801001:1.CMD_RETS").State();
+WriteLine(v);
+
+Hue Lampe Ausschalten
+dom.GetObject("CUxD.CUX2801001:1.CMD_QUERY_RET").State(1);
+dom.GetObject("CUxD.CUX2801001:1.CMD_SETS").State("tclsh /usr/local/addons/hue/hue.tcl 5 false 254 150 10000 0");
+var v = dom.GetObject("CUxD.CUX2801001:1.CMD_RETS").State();
+WriteLine(v);

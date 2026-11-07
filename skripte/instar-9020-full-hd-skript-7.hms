@@ -1,0 +1,1 @@
+http://xxx.xxx.xxx.xx:8181/alarm1.exe?Antwort=dom.GetObject("PIR").State(1)

@@ -1,0 +1,2 @@
+WriteLine("Mjpeg Stream");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/mjpegstream.cgi?-chn=11&-usr=XXX&-pwd=XXX'");

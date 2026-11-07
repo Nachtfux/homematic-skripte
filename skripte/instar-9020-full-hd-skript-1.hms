@@ -1,0 +1,13 @@
+WriteLine("Fahre Position 1 an");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=preset&-act=goto&-number=0&-usr=XXX&-pwd=XXX'");
+
+WriteLine("Fahre Position 2 an");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=preset&-act=goto&-number=1&-usr=XXX&-pwd=XXX'");
+
+WriteLine("Fahre Position 3 an");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=preset&-act=goto&-number=2&-usr=XXX&-pwd=XXX'");
+
+WriteLine("Fahre Position 4 an");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=preset&-act=goto&-number=3&-usr=XXX&-pwd=XXX'");
+
+usw…

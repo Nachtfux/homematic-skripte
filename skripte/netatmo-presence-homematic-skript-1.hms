@@ -1,0 +1,2 @@
+WriteLine("Kamera an");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://IP-DES-GERAETS/KAMERA-ID/command/changestatus?status=on'");

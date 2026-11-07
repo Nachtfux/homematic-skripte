@@ -1,0 +1,9 @@
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("LD_LIBRARY_PATH=/usr/local/addons/cuxd /usr/local/addons/cuxd/curl -d '
+<play_info>
+<app_key>APP-KEY-AUS-DER-ANLEITUNG</app_key>
+<url>http://www.appproject.de/MP3/willkommen.mp3</url>
+<service>Text1</service>
+<reason>Text2</reason>
+<message>Text3</message>
+<volume>25</volume>
+</play_info>' http://IP-DES-GERAETS:8090/speaker");

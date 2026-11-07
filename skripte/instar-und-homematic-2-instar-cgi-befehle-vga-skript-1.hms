@@ -1,0 +1,2 @@
+WriteLine("Bewegungsbereich scharf");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/set_alarm.cgi?motion_armed=1&user=XXX&pwd=XXX'");

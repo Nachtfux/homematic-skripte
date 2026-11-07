@@ -1,0 +1,2 @@
+WriteLine("Nachtsicht deaktiviert");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=setinfrared&-infraredstat=close&-usr=XXX&-pwd=XXX'");

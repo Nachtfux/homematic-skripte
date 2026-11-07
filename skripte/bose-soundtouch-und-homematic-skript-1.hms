@@ -1,0 +1,15 @@
+SoundTouch On/Off
+WriteLine("Bose ON/Off");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("LD_LIBRARY_PATH=/usr/local/addons/cuxd /usr/local/addons/cuxd/curl -d '<key state=\"press\" sender=\"Gabbo\">POWER</key>' http://XXX:8090/key");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("LD_LIBRARY_PATH=/usr/local/addons/cuxd /usr/local/addons/cuxd/curl -d '<key state=\"release\" sender=\"Gabbo\">POWER</key>' http://XXX:8090/key");
+
+
+Volumen von 0 bis 100
+WriteLine("Volumen auf 20");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("LD_LIBRARY_PATH=/usr/local/addons/cuxd /usr/local/addons/cuxd/curl -d '<volume>20</volume>' http://XXX:8090/volume");
+
+
+Sender von 1 bis 6
+WriteLine("Sender 1 (PRESET_1) wählen");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("LD_LIBRARY_PATH=/usr/local/addons/cuxd /usr/local/addons/cuxd/curl -d '<key state=\"press\" sender=\"Gabbo\">PRESET_1</key>' http://XXX:8090/key");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("LD_LIBRARY_PATH=/usr/local/addons/cuxd /usr/local/addons/cuxd/curl -d '<key state=\"release\" sender=\"Gabbo\">PRESET_1</key>' http://XXX:8090/key");

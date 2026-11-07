@@ -1,0 +1,5 @@
+WriteLine("Bewegungsbereich 1, 2, 3 und 4 unscharf");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=setmdattr&-enable=0&-name=1&-usr=XXX&-pwd=XXX'");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=setmdattr&-enable=0&-name=2&-usr=XXX&-pwd=XXX'");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=setmdattr&-enable=0&-name=3&-usr=XXX&-pwd=XXX'");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/cgi-bin/hi3510/param.cgi?cmd=setmdattr&-enable=0&-name=4&-usr=XXX&-pwd=XXX'");

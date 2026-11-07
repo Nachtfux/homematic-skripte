@@ -1,0 +1,2 @@
+WriteLine("Bild Vorschau");
+dom.GetObject("CUxD.CUX2801001:1.CMD_EXEC").State("wget -q -O - 'http://XXX/tmpfs/snap.jpg?usr=XXX&pwd=XXX'");
